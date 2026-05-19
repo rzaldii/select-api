@@ -6,12 +6,12 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-request.interface';
+import { NotificationsService } from '../notifications/notifications.service';
 import { BookingQueryDto } from './dto/booking-query.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { CheckAvailabilityDto } from './dto/check-availability.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { RejectBookingDto } from './dto/reject-booking.dto';
-import { NotificationsService } from '../notifications/notifications.service';
 import { UpdateRentalStatusDto } from './dto/update-rental-status.dto';
 
 const BLOCKING_BOOKING_STATUSES = [
@@ -82,9 +82,11 @@ function mapBooking(booking: any) {
           daily_price_snapshot: Number(bookingItem.daily_price_snapshot),
           rental_start_date: bookingItem.rental_start_date,
           rental_end_date: bookingItem.rental_end_date,
-          line_total: bookingItem.line_total
-            ? Number(bookingItem.line_total)
-            : null,
+          line_total:
+            bookingItem.line_total !== null &&
+            bookingItem.line_total !== undefined
+              ? Number(bookingItem.line_total)
+              : null,
           item: item
             ? {
                 id: Number(item.id),
@@ -165,37 +167,6 @@ export class BookingsService {
     );
   }
 
-
-  private async findUnavailableItemIds(
-    itemIds: number[],
-    startDate: Date,
-    endDate: Date,
-  ) {
-    const blockingBookings = await this.prisma.bookingItem.findMany({
-      where: {
-        item_id: {
-          in: itemIds.map((id) => BigInt(id)),
-        },
-        booking: {
-          status: {
-            in: [...BLOCKING_BOOKING_STATUSES],
-          },
-          rental_start_date: {
-            lte: endDate,
-          },
-          rental_end_date: {
-            gte: startDate,
-          },
-        },
-      },
-      select: {
-        item_id: true,
-      },
-    });
-
-    return [...new Set(blockingBookings.map((item) => Number(item.item_id)))];
-  }
-
   private async validateConditionVerificationComplete(params: {
     bookingId: bigint;
     type: 'before_rent' | 'after_rent';
@@ -229,9 +200,7 @@ export class BookingsService {
 
     if (missingItems.length > 0) {
       const label =
-        params.type === 'before_rent'
-          ? 'sebelum sewa'
-          : 'setelah sewa';
+        params.type === 'before_rent' ? 'sebelum sewa' : 'setelah sewa';
 
       throw new BadRequestException({
         message: `Foto kondisi barang ${label} belum lengkap atau belum disetujui admin`,
@@ -241,6 +210,36 @@ export class BookingsService {
         })),
       });
     }
+  }
+
+  private async findUnavailableItemIds(
+    itemIds: number[],
+    startDate: Date,
+    endDate: Date,
+  ) {
+    const blockingBookings = await this.prisma.bookingItem.findMany({
+      where: {
+        item_id: {
+          in: itemIds.map((id) => BigInt(id)),
+        },
+        booking: {
+          status: {
+            in: [...BLOCKING_BOOKING_STATUSES],
+          },
+          rental_start_date: {
+            lte: endDate,
+          },
+          rental_end_date: {
+            gte: startDate,
+          },
+        },
+      },
+      select: {
+        item_id: true,
+      },
+    });
+
+    return [...new Set(blockingBookings.map((item) => Number(item.item_id)))];
   }
 
   async checkAvailability(dto: CheckAvailabilityDto) {
@@ -384,7 +383,7 @@ export class BookingsService {
           })),
         });
 
-        return tx.booking.findUnique({
+        return tx.booking.findUniqueOrThrow({
           where: {
             id: createdBooking.id,
           },
@@ -417,8 +416,6 @@ export class BookingsService {
       });
 
       return mappedBooking;
-
-
     } catch (error: any) {
       if (
         String(error?.message ?? '').includes(
@@ -550,7 +547,7 @@ export class BookingsService {
       },
       data: {
         status: 'cancelled',
-        admin_note: dto.note,
+        admin_note: dto.note ?? booking.admin_note,
         cancelled_at: new Date(),
       },
       include: {
@@ -567,7 +564,17 @@ export class BookingsService {
       },
     });
 
-
+    await this.notifyAdmins({
+      type: 'system',
+      title: 'Booking Dibatalkan',
+      body: `${updatedBooking.customer?.full_name ?? 'Customer'} membatalkan booking ${updatedBooking.booking_code}.`,
+      data: {
+        booking_id: Number(updatedBooking.id),
+        booking_code: updatedBooking.booking_code,
+        status: updatedBooking.status,
+        note: dto.note,
+      },
+    });
 
     return mapBooking(updatedBooking);
   }
@@ -729,6 +736,174 @@ export class BookingsService {
         booking_code: updatedBooking.booking_code,
         status: updatedBooking.status,
         note: dto.note,
+      },
+      sendPush: true,
+    });
+
+    return mapBooking(updatedBooking);
+  }
+
+  async startRental(
+    id: number,
+    admin: AuthenticatedUser,
+    dto: UpdateRentalStatusDto,
+  ) {
+    const booking = await this.prisma.booking.findUnique({
+      where: {
+        id: BigInt(id),
+      },
+      include: {
+        customer: true,
+        booking_items: true,
+      },
+    });
+
+    if (!booking) {
+      throw new NotFoundException('Booking tidak ditemukan');
+    }
+
+    if (booking.status !== 'approved') {
+      throw new BadRequestException(
+        'Sewa hanya bisa dimulai setelah booking berstatus approved',
+      );
+    }
+
+    await this.validateConditionVerificationComplete({
+      bookingId: booking.id,
+      type: 'before_rent',
+    });
+
+    const updatedBooking = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.booking.update({
+        where: {
+          id: booking.id,
+        },
+        data: {
+          status: 'ongoing',
+          admin_note: dto.note ?? booking.admin_note,
+        },
+        include: {
+          customer: true,
+          booking_items: {
+            include: {
+              item: {
+                include: {
+                  images: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      await tx.item.updateMany({
+        where: {
+          id: {
+            in: booking.booking_items.map((item) => item.item_id),
+          },
+        },
+        data: {
+          status: 'rented',
+          updated_by: BigInt(admin.profile.id),
+        },
+      });
+
+      return updated;
+    });
+
+    await this.notificationsService.createNotification({
+      userId: Number(updatedBooking.customer_id),
+      type: 'system',
+      title: 'Sewa Dimulai',
+      body: `Booking ${updatedBooking.booking_code} sudah dimulai. Barang sedang dalam masa sewa.`,
+      data: {
+        booking_id: Number(updatedBooking.id),
+        booking_code: updatedBooking.booking_code,
+        status: updatedBooking.status,
+      },
+      sendPush: true,
+    });
+
+    return mapBooking(updatedBooking);
+  }
+
+  async completeRental(
+    id: number,
+    admin: AuthenticatedUser,
+    dto: UpdateRentalStatusDto,
+  ) {
+    const booking = await this.prisma.booking.findUnique({
+      where: {
+        id: BigInt(id),
+      },
+      include: {
+        customer: true,
+        booking_items: true,
+      },
+    });
+
+    if (!booking) {
+      throw new NotFoundException('Booking tidak ditemukan');
+    }
+
+    if (booking.status !== 'ongoing') {
+      throw new BadRequestException(
+        'Sewa hanya bisa diselesaikan jika booking berstatus ongoing',
+      );
+    }
+
+    await this.validateConditionVerificationComplete({
+      bookingId: booking.id,
+      type: 'after_rent',
+    });
+
+    const updatedBooking = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.booking.update({
+        where: {
+          id: booking.id,
+        },
+        data: {
+          status: 'completed',
+          admin_note: dto.note ?? booking.admin_note,
+        },
+        include: {
+          customer: true,
+          booking_items: {
+            include: {
+              item: {
+                include: {
+                  images: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      await tx.item.updateMany({
+        where: {
+          id: {
+            in: booking.booking_items.map((item) => item.item_id),
+          },
+        },
+        data: {
+          status: 'available',
+          updated_by: BigInt(admin.profile.id),
+        },
+      });
+
+      return updated;
+    });
+
+    await this.notificationsService.createNotification({
+      userId: Number(updatedBooking.customer_id),
+      type: 'rental_completed',
+      title: 'Sewa Selesai',
+      body: `Booking ${updatedBooking.booking_code} telah selesai. Terima kasih telah menggunakan SELECT.`,
+      data: {
+        booking_id: Number(updatedBooking.id),
+        booking_code: updatedBooking.booking_code,
+        status: updatedBooking.status,
       },
       sendPush: true,
     });
