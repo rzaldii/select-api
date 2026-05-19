@@ -26,6 +26,7 @@ import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { CheckAvailabilityDto } from './dto/check-availability.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { RejectBookingDto } from './dto/reject-booking.dto';
+import { UpdateRentalStatusDto } from './dto/update-rental-status.dto';
 
 @ApiTags('Bookings')
 @Controller()
@@ -158,4 +159,40 @@ export class BookingsController {
       data: await this.bookingsService.rejectBooking(id, user, dto),
     };
   }
+
+    @Patch('admin/bookings/:id/start')
+    @ApiBearerAuth()
+    @UseGuards(SupabaseAuthGuard, RolesGuard)
+    @Roles('admin')
+    @ApiOperation({ summary: 'Admin memulai masa sewa booking' })
+    @ApiParam({ name: 'id', example: 1 })
+    async startRental(
+        @CurrentUser() user: AuthenticatedUser,
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: UpdateRentalStatusDto,
+    ) {
+        return {
+            success: true,
+            message: 'Sewa berhasil dimulai',
+            data: await this.bookingsService.startRental(id, user, dto),
+        };
+    }
+
+    @Patch('admin/bookings/:id/complete')
+    @ApiBearerAuth()
+    @UseGuards(SupabaseAuthGuard, RolesGuard)
+    @Roles('admin')
+    @ApiOperation({ summary: 'Admin menyelesaikan masa sewa booking' })
+    @ApiParam({ name: 'id', example: 1 })
+    async completeRental(
+        @CurrentUser() user: AuthenticatedUser,
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: UpdateRentalStatusDto,
+    ) {
+        return {
+            success: true,
+            message: 'Sewa berhasil diselesaikan',
+            data: await this.bookingsService.completeRental(id, user, dto),
+        };
+    }
 }
