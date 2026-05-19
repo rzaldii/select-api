@@ -7,6 +7,338 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Profile {
+  id                                      BigInt                     @id @default(autoincrement())
+  auth_user_id                            String?                    @unique @db.Uuid
+  full_name                               String                     @db.VarChar(120)
+  username                                String?                    @unique @db.Citext
+  email                                   String                     @unique @db.Citext
+  phone                                   String?                    @db.VarChar(30)
+  role                                    UserRole                   @default(customer)
+  avatar_path                             String?
+  is_active                               Boolean                    @default(true)
+  created_at                              DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                              DateTime                   @default(now()) @db.Timestamptz(6)
+  booking_status_histories                booking_status_histories[]
+  bookings_bookings_approved_byToprofiles Booking[]                  @relation("bookings_approved_byToprofiles")
+  bookings                                Booking[]                  @relation("CustomerBookings")
+  bookings_bookings_rejected_byToprofiles Booking[]                  @relation("bookings_rejected_byToprofiles")
+  reviewed_conditions                     ConditionVerification[]    @relation("ConditionReviewedBy")
+  condition_verifications                 ConditionVerification[]    @relation("ConditionSubmittedBy")
+  device_tokens                           DeviceToken[]
+  favorites                               favorites[]
+  reviewed_identities                     IdentityVerification[]     @relation("IdentityReviewedBy")
+  identity_verifications                  IdentityVerification[]     @relation("IdentitySubmittedBy")
+  items_items_created_byToprofiles        Item[]                     @relation("items_created_byToprofiles")
+  items_items_updated_byToprofiles        Item[]                     @relation("items_updated_byToprofiles")
+  notifications                           Notification[]
+  reviews                                 reviews[]
+
+  @@map("profiles")
+}
+
+model Category {
+  id          BigInt   @id @default(autoincrement())
+  name        String   @unique @db.VarChar(80)
+  slug        String   @unique @db.VarChar(100)
+  icon_name   String?  @db.VarChar(80)
+  description String?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @db.Timestamptz(6)
+  items       Item[]
+
+  @@map("categories")
+}
+
+model Item {
+  id                                  BigInt                  @id @default(autoincrement())
+  category_id                         BigInt
+  name                                String                  @db.VarChar(150)
+  slug                                String                  @unique @db.VarChar(180)
+  brand                               String?                 @db.VarChar(100)
+  model                               String?                 @db.VarChar(100)
+  serial_number                       String                  @unique @db.VarChar(100)
+  description                         String?
+  daily_price                         Decimal                 @db.Decimal(12, 2)
+  replacement_value                   Decimal?                @db.Decimal(12, 2)
+  status                              ItemStatus              @default(available)
+  is_active                           Boolean                 @default(true)
+  specifications                      Json                    @default("{}")
+  created_by                          BigInt?
+  updated_by                          BigInt?
+  created_at                          DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at                          DateTime                @default(now()) @db.Timestamptz(6)
+  booking_items                       BookingItem[]
+  condition_verifications             ConditionVerification[]
+  favorites                           favorites[]
+  images                              ItemImage[]
+  category                            Category                @relation(fields: [category_id], references: [id], onUpdate: NoAction)
+  profiles_items_created_byToprofiles Profile?                @relation("items_created_byToprofiles", fields: [created_by], references: [id], onUpdate: NoAction)
+  profiles_items_updated_byToprofiles Profile?                @relation("items_updated_byToprofiles", fields: [updated_by], references: [id], onUpdate: NoAction)
+  reviews                             reviews[]
+
+  @@index([category_id], map: "idx_items_category_id")
+  @@index([is_active], map: "idx_items_is_active")
+  @@index([name], map: "idx_items_name")
+  @@index([status], map: "idx_items_status")
+  @@map("items")
+}
+
+model ItemImage {
+  id             BigInt   @id @default(autoincrement())
+  item_id        BigInt
+  storage_bucket String   @default("item-images") @db.VarChar(100)
+  storage_path   String
+  public_url     String?
+  is_primary     Boolean  @default(false)
+  sort_order     Int      @default(0)
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  item           Item     @relation(fields: [item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([item_id], map: "idx_item_images_item_id")
+  @@map("item_images")
+}
+
+model Booking {
+  id                                      BigInt                     @id @default(autoincrement())
+  booking_code                            String                     @unique @db.VarChar(30)
+  customer_id                             BigInt
+  rental_start_date                       DateTime                   @db.Date
+  rental_end_date                         DateTime                   @db.Date
+  total_days                              Int?                       @default(dbgenerated("((rental_end_date - rental_start_date) + 1)"))
+  subtotal_amount                         Decimal                    @default(0) @db.Decimal(12, 2)
+  service_fee                             Decimal                    @default(0) @db.Decimal(12, 2)
+  total_amount                            Decimal                    @default(0) @db.Decimal(12, 2)
+  status                                  BookingStatus              @default(pending_verification)
+  customer_note                           String?
+  admin_note                              String?
+  approved_by                             BigInt?
+  approved_at                             DateTime?                  @db.Timestamptz(6)
+  rejected_by                             BigInt?
+  rejected_at                             DateTime?                  @db.Timestamptz(6)
+  cancelled_at                            DateTime?                  @db.Timestamptz(6)
+  expired_at                              DateTime?                  @db.Timestamptz(6)
+  created_at                              DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                              DateTime                   @default(now()) @db.Timestamptz(6)
+  booking_items                           BookingItem[]
+  booking_status_histories                booking_status_histories[]
+  profiles_bookings_approved_byToprofiles Profile?                   @relation("bookings_approved_byToprofiles", fields: [approved_by], references: [id], onUpdate: NoAction)
+  customer                                Profile                    @relation("CustomerBookings", fields: [customer_id], references: [id], onUpdate: NoAction)
+  profiles_bookings_rejected_byToprofiles Profile?                   @relation("bookings_rejected_byToprofiles", fields: [rejected_by], references: [id], onUpdate: NoAction)
+  condition_verifications                 ConditionVerification[]
+  identity_verification                   IdentityVerification?
+  payment                                 Payment?
+  reviews                                 reviews[]
+
+  @@index([customer_id], map: "idx_bookings_customer_id")
+  @@index([rental_start_date, rental_end_date], map: "idx_bookings_date_range")
+  @@index([status], map: "idx_bookings_status")
+  @@map("bookings")
+}
+
+model BookingItem {
+  id                   BigInt   @id @default(autoincrement())
+  booking_id           BigInt
+  item_id              BigInt
+  item_name_snapshot   String   @db.VarChar(150)
+  daily_price_snapshot Decimal  @db.Decimal(12, 2)
+  rental_start_date    DateTime @db.Date
+  rental_end_date      DateTime @db.Date
+  line_total           Decimal? @default(dbgenerated("(daily_price_snapshot * (((rental_end_date - rental_start_date) + 1))::numeric)")) @db.Decimal(12, 2)
+  created_at           DateTime @default(now()) @db.Timestamptz(6)
+  booking              Booking  @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  item                 Item     @relation(fields: [item_id], references: [id], onUpdate: NoAction)
+
+  @@unique([booking_id, item_id])
+  @@index([booking_id], map: "idx_booking_items_booking_id")
+  @@index([rental_start_date, rental_end_date], map: "idx_booking_items_date_range")
+  @@index([item_id], map: "idx_booking_items_item_id")
+  @@map("booking_items")
+}
+
+model IdentityVerification {
+  id                BigInt             @id @default(autoincrement())
+  booking_id        BigInt             @unique
+  user_id           BigInt
+  document_type     String             @default("ktp") @db.VarChar(30)
+  ktp_name          String?            @db.VarChar(120)
+  ktp_number_masked String?            @db.VarChar(40)
+  photo_bucket      String             @default("identity-documents") @db.VarChar(100)
+  photo_path        String
+  latitude          Decimal            @db.Decimal(10, 7)
+  longitude         Decimal            @db.Decimal(10, 7)
+  address_text      String?
+  taken_at          DateTime           @db.Timestamptz(6)
+  status            VerificationStatus @default(pending)
+  reviewed_by       BigInt?
+  reviewed_at       DateTime?          @db.Timestamptz(6)
+  rejection_reason  String?
+  created_at        DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime           @default(now()) @db.Timestamptz(6)
+  booking           Booking            @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  reviewer          Profile?           @relation("IdentityReviewedBy", fields: [reviewed_by], references: [id], onUpdate: NoAction)
+  user              Profile            @relation("IdentitySubmittedBy", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([booking_id], map: "idx_identity_verifications_booking_id")
+  @@index([status], map: "idx_identity_verifications_status")
+  @@index([user_id], map: "idx_identity_verifications_user_id")
+  @@map("identity_verifications")
+}
+
+model ConditionVerification {
+  id           BigInt             @id @default(autoincrement())
+  booking_id   BigInt
+  item_id      BigInt
+  submitted_by BigInt
+  type         ConditionType
+  photo_bucket String             @default("condition-photos") @db.VarChar(100)
+  photo_path   String
+  latitude     Decimal            @db.Decimal(10, 7)
+  longitude    Decimal            @db.Decimal(10, 7)
+  address_text String?
+  note         String?
+  taken_at     DateTime           @db.Timestamptz(6)
+  status       VerificationStatus @default(pending)
+  reviewed_by  BigInt?
+  reviewed_at  DateTime?          @db.Timestamptz(6)
+  created_at   DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime           @default(now()) @db.Timestamptz(6)
+  booking      Booking            @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  item         Item               @relation(fields: [item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  reviewer     Profile?           @relation("ConditionReviewedBy", fields: [reviewed_by], references: [id], onUpdate: NoAction)
+  submitter    Profile            @relation("ConditionSubmittedBy", fields: [submitted_by], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([booking_id, item_id, type])
+  @@index([booking_id], map: "idx_condition_verifications_booking_id")
+  @@index([item_id], map: "idx_condition_verifications_item_id")
+  @@index([type], map: "idx_condition_verifications_type")
+  @@map("condition_verifications")
+}
+
+model Payment {
+  id                BigInt          @id @default(autoincrement())
+  booking_id        BigInt          @unique
+  provider          PaymentProvider @default(midtrans)
+  external_order_id String          @unique @db.VarChar(100)
+  transaction_id    String?         @db.VarChar(150)
+  snap_token        String?
+  redirect_url      String?
+  gross_amount      Decimal         @db.Decimal(12, 2)
+  payment_type      String?         @db.VarChar(80)
+  status            PaymentStatus   @default(pending)
+  fraud_status      String?         @db.VarChar(80)
+  paid_at           DateTime?       @db.Timestamptz(6)
+  expired_at        DateTime?       @db.Timestamptz(6)
+  raw_response      Json            @default("{}")
+  created_at        DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime        @default(now()) @db.Timestamptz(6)
+  events            PaymentEvent[]
+  booking           Booking         @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([booking_id], map: "idx_payments_booking_id")
+  @@index([status], map: "idx_payments_status")
+  @@map("payments")
+}
+
+model PaymentEvent {
+  id          BigInt         @id @default(autoincrement())
+  payment_id  BigInt
+  event_type  String         @db.VarChar(100)
+  status      PaymentStatus?
+  payload     Json           @default("{}")
+  received_at DateTime       @default(now()) @db.Timestamptz(6)
+  payment     Payment        @relation(fields: [payment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([payment_id], map: "idx_payment_events_payment_id")
+  @@map("payment_events")
+}
+
+model Notification {
+  id         BigInt           @id @default(autoincrement())
+  user_id    BigInt
+  type       NotificationType @default(system)
+  title      String           @db.VarChar(150)
+  body       String
+  data       Json             @default("{}")
+  is_read    Boolean          @default(false)
+  read_at    DateTime?        @db.Timestamptz(6)
+  created_at DateTime         @default(now()) @db.Timestamptz(6)
+  user       Profile          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_notifications_created_at")
+  @@index([is_read], map: "idx_notifications_is_read")
+  @@index([user_id], map: "idx_notifications_user_id")
+  @@map("notifications")
+}
+
+model DeviceToken {
+  id           BigInt   @id @default(autoincrement())
+  user_id      BigInt
+  fcm_token    String   @unique
+  platform     String   @db.VarChar(30)
+  device_name  String?  @db.VarChar(120)
+  is_active    Boolean  @default(true)
+  last_seen_at DateTime @default(now()) @db.Timestamptz(6)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @db.Timestamptz(6)
+  user         Profile  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([is_active], map: "idx_device_tokens_is_active")
+  @@index([user_id], map: "idx_device_tokens_user_id")
+  @@map("device_tokens")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model booking_status_histories {
+  id         BigInt         @id @default(autoincrement())
+  booking_id BigInt
+  old_status BookingStatus?
+  new_status BookingStatus
+  changed_by BigInt?
+  note       String?
+  created_at DateTime       @default(now()) @db.Timestamptz(6)
+  bookings   Booking        @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  profiles   Profile?       @relation(fields: [changed_by], references: [id], onUpdate: NoAction)
+
+  @@index([booking_id], map: "idx_booking_status_histories_booking_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model favorites {
+  user_id    BigInt
+  item_id    BigInt
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  items      Item     @relation(fields: [item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  profiles   Profile  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, item_id])
+  @@index([item_id], map: "idx_favorites_item_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reviews {
+  id           BigInt   @id @default(autoincrement())
+  booking_id   BigInt
+  item_id      BigInt
+  user_id      BigInt
+  rating       Int
+  comment      String?
+  media_bucket String?  @db.VarChar(100)
+  media_path   String?
+  is_visible   Boolean  @default(true)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @db.Timestamptz(6)
+  bookings     Booking  @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  items        Item     @relation(fields: [item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  profiles     Profile  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([booking_id, item_id, user_id])
+  @@index([item_id], map: "idx_reviews_item_id")
+  @@index([user_id], map: "idx_reviews_user_id")
+}
+
 enum UserRole {
   customer
   admin
@@ -83,265 +415,4 @@ enum NotificationType {
   system
 
   @@map("notification_type")
-}
-
-model Profile {
-  id           BigInt   @id @default(autoincrement())
-  auth_user_id String?  @unique @db.Uuid
-  full_name    String   @db.VarChar(120)
-  username     String?  @unique @db.Citext
-  email        String   @unique @db.Citext
-  phone        String?  @db.VarChar(30)
-  role         UserRole @default(customer)
-  avatar_path  String?
-  is_active    Boolean  @default(true)
-  created_at   DateTime @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime @default(now()) @db.Timestamptz(6)
-
-  bookings Booking[] @relation("CustomerBookings")
-
-  identity_verifications IdentityVerification[] @relation("IdentitySubmittedBy")
-  reviewed_identities    IdentityVerification[] @relation("IdentityReviewedBy")
-
-  condition_verifications ConditionVerification[] @relation("ConditionSubmittedBy")
-  reviewed_conditions     ConditionVerification[] @relation("ConditionReviewedBy")
-
-  notifications Notification[]
-  device_tokens DeviceToken[]
-
-  @@map("profiles")
-}
-
-model Category {
-  id          BigInt   @id @default(autoincrement())
-  name        String   @unique @db.VarChar(80)
-  slug        String   @unique @db.VarChar(100)
-  icon_name   String?  @db.VarChar(80)
-  description String?
-  is_active   Boolean  @default(true)
-  created_at  DateTime @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime @default(now()) @db.Timestamptz(6)
-
-  items Item[]
-
-  @@map("categories")
-}
-
-model Item {
-  id                BigInt     @id @default(autoincrement())
-  category_id       BigInt
-  name              String     @db.VarChar(150)
-  slug              String     @unique @db.VarChar(180)
-  brand             String?    @db.VarChar(100)
-  model             String?    @db.VarChar(100)
-  serial_number     String     @unique @db.VarChar(100)
-  description       String?
-  daily_price       Decimal    @db.Decimal(12, 2)
-  replacement_value Decimal?   @db.Decimal(12, 2)
-  status            ItemStatus @default(available)
-  is_active         Boolean    @default(true)
-  specifications    Json      @default("{}")
-  created_by        BigInt?
-  updated_by        BigInt?
-  created_at        DateTime   @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime   @default(now()) @db.Timestamptz(6)
-
-  category Category    @relation(fields: [category_id], references: [id])
-  images   ItemImage[]
-
-  booking_items           BookingItem[]
-  condition_verifications ConditionVerification[]
-
-  @@map("items")
-}
-
-model ItemImage {
-  id             BigInt   @id @default(autoincrement())
-  item_id        BigInt
-  storage_bucket String   @default("item-images") @db.VarChar(100)
-  storage_path   String
-  public_url     String?
-  is_primary     Boolean  @default(false)
-  sort_order     Int      @default(0)
-  created_at     DateTime @default(now()) @db.Timestamptz(6)
-
-  item Item @relation(fields: [item_id], references: [id], onDelete: Cascade)
-
-  @@map("item_images")
-}
-
-model Booking {
-  id                BigInt        @id @default(autoincrement())
-  booking_code      String        @unique @db.VarChar(30)
-  customer_id       BigInt
-  rental_start_date DateTime      @db.Date
-  rental_end_date   DateTime      @db.Date
-  total_days        Int?
-  subtotal_amount   Decimal       @default(0) @db.Decimal(12, 2)
-  service_fee       Decimal       @default(0) @db.Decimal(12, 2)
-  total_amount      Decimal       @default(0) @db.Decimal(12, 2)
-  status            BookingStatus @default(pending_verification)
-  customer_note     String?
-  admin_note        String?
-  approved_by       BigInt?
-  approved_at       DateTime?     @db.Timestamptz(6)
-  rejected_by       BigInt?
-  rejected_at       DateTime?     @db.Timestamptz(6)
-  cancelled_at      DateTime?     @db.Timestamptz(6)
-  expired_at        DateTime?     @db.Timestamptz(6)
-  created_at        DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
-
-  customer Profile @relation("CustomerBookings", fields: [customer_id], references: [id])
-
-  booking_items           BookingItem[]
-  identity_verification   IdentityVerification?
-  condition_verifications ConditionVerification[]
-  payment                 Payment?
-
-  @@map("bookings")
-}
-
-model BookingItem {
-  id                   BigInt   @id @default(autoincrement())
-  booking_id           BigInt
-  item_id              BigInt
-  item_name_snapshot   String   @db.VarChar(150)
-  daily_price_snapshot Decimal  @db.Decimal(12, 2)
-  rental_start_date    DateTime @db.Date
-  rental_end_date      DateTime @db.Date
-  line_total           Decimal? @db.Decimal(12, 2)
-  created_at           DateTime @default(now()) @db.Timestamptz(6)
-
-  booking Booking @relation(fields: [booking_id], references: [id], onDelete: Cascade)
-  item    Item    @relation(fields: [item_id], references: [id])
-
-  @@unique([booking_id, item_id])
-  @@map("booking_items")
-}
-
-model IdentityVerification {
-  id                BigInt             @id @default(autoincrement())
-  booking_id        BigInt             @unique
-  user_id           BigInt
-  document_type     String             @default("ktp") @db.VarChar(30)
-  ktp_name          String?            @db.VarChar(120)
-  ktp_number_masked String?            @db.VarChar(40)
-  photo_bucket      String             @default("identity-documents") @db.VarChar(100)
-  photo_path        String
-  latitude          Decimal            @db.Decimal(10, 7)
-  longitude         Decimal            @db.Decimal(10, 7)
-  address_text      String?
-  taken_at          DateTime           @db.Timestamptz(6)
-  status            VerificationStatus @default(pending)
-  reviewed_by       BigInt?
-  reviewed_at       DateTime?          @db.Timestamptz(6)
-  rejection_reason  String?
-  created_at        DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime           @default(now()) @db.Timestamptz(6)
-
-  booking Booking @relation(fields: [booking_id], references: [id], onDelete: Cascade)
-
-  user     Profile  @relation("IdentitySubmittedBy", fields: [user_id], references: [id], onDelete: Cascade)
-  reviewer Profile? @relation("IdentityReviewedBy", fields: [reviewed_by], references: [id])
-
-  @@map("identity_verifications")
-}
-
-model ConditionVerification {
-  id           BigInt             @id @default(autoincrement())
-  booking_id   BigInt
-  item_id      BigInt
-  submitted_by BigInt
-  type         ConditionType
-  photo_bucket String             @default("condition-photos") @db.VarChar(100)
-  photo_path   String
-  latitude     Decimal            @db.Decimal(10, 7)
-  longitude    Decimal            @db.Decimal(10, 7)
-  address_text String?
-  note         String?
-  taken_at     DateTime           @db.Timestamptz(6)
-  status       VerificationStatus @default(pending)
-  reviewed_by  BigInt?
-  reviewed_at  DateTime?          @db.Timestamptz(6)
-  created_at   DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime           @default(now()) @db.Timestamptz(6)
-
-  booking Booking @relation(fields: [booking_id], references: [id], onDelete: Cascade)
-  item    Item    @relation(fields: [item_id], references: [id], onDelete: Cascade)
-
-  submitter Profile  @relation("ConditionSubmittedBy", fields: [submitted_by], references: [id], onDelete: Cascade)
-  reviewer  Profile? @relation("ConditionReviewedBy", fields: [reviewed_by], references: [id])
-
-  @@unique([booking_id, item_id, type])
-  @@map("condition_verifications")
-}
-
-model Payment {
-  id                BigInt          @id @default(autoincrement())
-  booking_id        BigInt          @unique
-  provider          PaymentProvider @default(midtrans)
-  external_order_id String          @unique @db.VarChar(100)
-  transaction_id    String?         @db.VarChar(150)
-  snap_token        String?
-  redirect_url      String?
-  gross_amount      Decimal         @db.Decimal(12, 2)
-  payment_type      String?         @db.VarChar(80)
-  status            PaymentStatus   @default(pending)
-  fraud_status      String?         @db.VarChar(80)
-  paid_at           DateTime?       @db.Timestamptz(6)
-  expired_at        DateTime?       @db.Timestamptz(6)
-  raw_response      Json            @default("{}")
-  created_at        DateTime        @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime        @default(now()) @db.Timestamptz(6)
-
-  booking Booking        @relation(fields: [booking_id], references: [id], onDelete: Cascade)
-  events  PaymentEvent[]
-
-  @@map("payments")
-}
-
-model PaymentEvent {
-  id          BigInt         @id @default(autoincrement())
-  payment_id  BigInt
-  event_type  String         @db.VarChar(100)
-  status      PaymentStatus?
-  payload     Json           @default("{}")
-  received_at DateTime       @default(now()) @db.Timestamptz(6)
-
-  payment Payment @relation(fields: [payment_id], references: [id], onDelete: Cascade)
-
-  @@map("payment_events")
-}
-
-model Notification {
-  id         BigInt           @id @default(autoincrement())
-  user_id    BigInt
-  type       NotificationType @default(system)
-  title      String           @db.VarChar(150)
-  body       String
-  data       Json             @default("{}")
-  is_read    Boolean          @default(false)
-  read_at    DateTime?        @db.Timestamptz(6)
-  created_at DateTime         @default(now()) @db.Timestamptz(6)
-
-  user Profile @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@map("notifications")
-}
-
-model DeviceToken {
-  id           BigInt   @id @default(autoincrement())
-  user_id      BigInt
-  fcm_token    String   @unique
-  platform     String   @db.VarChar(30)
-  device_name  String?  @db.VarChar(120)
-  is_active    Boolean  @default(true)
-  last_seen_at DateTime @default(now()) @db.Timestamptz(6)
-  created_at   DateTime @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime @default(now()) @db.Timestamptz(6)
-
-  user Profile @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@map("device_tokens")
 }
