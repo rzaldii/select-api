@@ -12,6 +12,7 @@ import { CheckAvailabilityDto } from './dto/check-availability.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { RejectBookingDto } from './dto/reject-booking.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { UpdateRentalStatusDto } from './dto/update-rental-status.dto';
 
 const BLOCKING_BOOKING_STATUSES = [
   'pending_verification',
@@ -193,6 +194,53 @@ export class BookingsService {
     });
 
     return [...new Set(blockingBookings.map((item) => Number(item.item_id)))];
+  }
+
+  private async validateConditionVerificationComplete(params: {
+    bookingId: bigint;
+    type: 'before_rent' | 'after_rent';
+  }) {
+    const bookingItems = await this.prisma.bookingItem.findMany({
+      where: {
+        booking_id: params.bookingId,
+      },
+      select: {
+        item_id: true,
+        item_name_snapshot: true,
+      },
+    });
+
+    const verifications = await this.prisma.conditionVerification.findMany({
+      where: {
+        booking_id: params.bookingId,
+        type: params.type,
+        status: 'approved',
+      },
+      select: {
+        item_id: true,
+      },
+    });
+
+    const approvedItemIds = verifications.map((item) => Number(item.item_id));
+
+    const missingItems = bookingItems.filter(
+      (item) => !approvedItemIds.includes(Number(item.item_id)),
+    );
+
+    if (missingItems.length > 0) {
+      const label =
+        params.type === 'before_rent'
+          ? 'sebelum sewa'
+          : 'setelah sewa';
+
+      throw new BadRequestException({
+        message: `Foto kondisi barang ${label} belum lengkap atau belum disetujui admin`,
+        missing_items: missingItems.map((item) => ({
+          item_id: Number(item.item_id),
+          item_name: item.item_name_snapshot,
+        })),
+      });
+    }
   }
 
   async checkAvailability(dto: CheckAvailabilityDto) {
