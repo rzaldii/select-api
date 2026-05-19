@@ -11,6 +11,7 @@ import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { CheckAvailabilityDto } from './dto/check-availability.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { RejectBookingDto } from './dto/reject-booking.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const BLOCKING_BOOKING_STATUSES = [
   'pending_verification',
@@ -108,7 +109,10 @@ function mapBooking(booking: any) {
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   private validateDateRange(startDate: Date, endDate: Date) {
     if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
@@ -121,6 +125,45 @@ export class BookingsService {
       );
     }
   }
+
+  private async notifyAdmins(params: {
+    type:
+      | 'booking_created'
+      | 'booking_approved'
+      | 'booking_rejected'
+      | 'payment_success'
+      | 'payment_failed'
+      | 'rental_reminder'
+      | 'rental_completed'
+      | 'system';
+    title: string;
+    body: string;
+    data?: Record<string, any>;
+  }) {
+    const admins = await this.prisma.profile.findMany({
+      where: {
+        role: 'admin',
+        is_active: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    await Promise.all(
+      admins.map((admin) =>
+        this.notificationsService.createNotification({
+          userId: Number(admin.id),
+          type: params.type,
+          title: params.title,
+          body: params.body,
+          data: params.data,
+          sendPush: true,
+        }),
+      ),
+    );
+  }
+
 
   private async findUnavailableItemIds(
     itemIds: number[],
@@ -312,7 +355,22 @@ export class BookingsService {
         });
       });
 
-      return mapBooking(booking);
+      const mappedBooking = mapBooking(booking);
+
+      await this.notifyAdmins({
+        type: 'booking_created',
+        title: 'Booking Baru Masuk',
+        body: `${user.profile.full_name} membuat booking ${mappedBooking.booking_code}.`,
+        data: {
+          booking_id: mappedBooking.id,
+          booking_code: mappedBooking.booking_code,
+          status: mappedBooking.status,
+        },
+      });
+
+      return mappedBooking;
+
+
     } catch (error: any) {
       if (
         String(error?.message ?? '').includes(
@@ -461,6 +519,8 @@ export class BookingsService {
       },
     });
 
+
+
     return mapBooking(updatedBooking);
   }
 
@@ -521,9 +581,9 @@ export class BookingsService {
       throw new NotFoundException('Booking tidak ditemukan');
     }
 
-    if (['cancelled', 'rejected', 'completed', 'expired'].includes(booking.status)) {
+    if (booking.status !== 'paid') {
       throw new BadRequestException(
-        'Booking dengan status ini tidak bisa disetujui',
+        'Booking hanya bisa disetujui setelah pembayaran berhasil',
       );
     }
 
@@ -548,6 +608,19 @@ export class BookingsService {
           },
         },
       },
+    });
+
+    await this.notificationsService.createNotification({
+      userId: Number(updatedBooking.customer_id),
+      type: 'booking_approved',
+      title: 'Booking Disetujui',
+      body: `Booking ${updatedBooking.booking_code} telah disetujui. Silakan lanjutkan proses pengambilan barang.`,
+      data: {
+        booking_id: Number(updatedBooking.id),
+        booking_code: updatedBooking.booking_code,
+        status: updatedBooking.status,
+      },
+      sendPush: true,
     });
 
     return mapBooking(updatedBooking);
@@ -596,6 +669,20 @@ export class BookingsService {
           },
         },
       },
+    });
+
+    await this.notificationsService.createNotification({
+      userId: Number(updatedBooking.customer_id),
+      type: 'booking_rejected',
+      title: 'Booking Ditolak',
+      body: `Booking ${updatedBooking.booking_code} ditolak oleh admin.`,
+      data: {
+        booking_id: Number(updatedBooking.id),
+        booking_code: updatedBooking.booking_code,
+        status: updatedBooking.status,
+        note: dto.note,
+      },
+      sendPush: true,
     });
 
     return mapBooking(updatedBooking);

@@ -222,20 +222,33 @@ export class NotificationsService {
       },
     });
 
+    let pushResult: any = null;
+
     if (params.sendPush) {
-      await this.sendPushToUser({
-        userId: params.userId,
-        title: params.title,
-        body: params.body,
-        data: {
-          notification_id: Number(notification.id),
-          type: params.type ?? 'system',
-          ...(params.data ?? {}),
-        },
-      });
+      try {
+        pushResult = await this.sendPushToUser({
+          userId: params.userId,
+          title: params.title,
+          body: params.body,
+          data: {
+            notification_id: Number(notification.id),
+            type: params.type ?? 'system',
+            ...(params.data ?? {}),
+          },
+        });
+      } catch (error: any) {
+        pushResult = {
+          sent: 0,
+          failed: 1,
+          error: error?.message ?? 'Gagal mengirim push notification',
+        };
+      }
     }
 
-    return mapNotification(notification);
+    return {
+      ...mapNotification(notification),
+      push_result: pushResult,
+    };
   }
 
   async sendPushToUser(params: {
