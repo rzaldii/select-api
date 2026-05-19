@@ -65,12 +65,14 @@ model Profile {
   is_active    Boolean  @default(true)
   created_at   DateTime @default(now()) @db.Timestamptz(6)
   updated_at   DateTime @default(now()) @db.Timestamptz(6)
-  identity_verifications  IdentityVerification[]
-  condition_verifications ConditionVerification[] @relation("ConditionSubmittedBy")
-  reviewed_identities     IdentityVerification[]  @relation("IdentityReviewedBy")
-  reviewed_conditions     ConditionVerification[] @relation("ConditionReviewedBy")
 
   bookings Booking[] @relation("CustomerBookings")
+
+  identity_verifications IdentityVerification[] @relation("IdentitySubmittedBy")
+  reviewed_identities    IdentityVerification[] @relation("IdentityReviewedBy")
+
+  condition_verifications ConditionVerification[] @relation("ConditionSubmittedBy")
+  reviewed_conditions     ConditionVerification[] @relation("ConditionReviewedBy")
 
   @@map("profiles")
 }
@@ -109,9 +111,10 @@ model Item {
   created_at        DateTime   @default(now()) @db.Timestamptz(6)
   updated_at        DateTime   @default(now()) @db.Timestamptz(6)
 
-  category      Category      @relation(fields: [category_id], references: [id])
-  images        ItemImage[]
-  booking_items BookingItem[]
+  category Category    @relation(fields: [category_id], references: [id])
+  images   ItemImage[]
+
+  booking_items           BookingItem[]
   condition_verifications ConditionVerification[]
 
   @@map("items")
@@ -154,8 +157,9 @@ model Booking {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   updated_at        DateTime      @default(now()) @db.Timestamptz(6)
 
-  customer      Profile       @relation("CustomerBookings", fields: [customer_id], references: [id])
-  booking_items BookingItem[]
+  customer Profile @relation("CustomerBookings", fields: [customer_id], references: [id])
+
+  booking_items           BookingItem[]
   identity_verification   IdentityVerification?
   condition_verifications ConditionVerification[]
 
@@ -200,9 +204,39 @@ model IdentityVerification {
   created_at        DateTime           @default(now()) @db.Timestamptz(6)
   updated_at        DateTime           @default(now()) @db.Timestamptz(6)
 
-  booking  Booking @relation(fields: [booking_id], references: [id], onDelete: Cascade)
-  user     Profile @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  booking Booking @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+
+  user     Profile  @relation("IdentitySubmittedBy", fields: [user_id], references: [id], onDelete: Cascade)
   reviewer Profile? @relation("IdentityReviewedBy", fields: [reviewed_by], references: [id])
 
   @@map("identity_verifications")
+}
+
+model ConditionVerification {
+  id           BigInt             @id @default(autoincrement())
+  booking_id   BigInt
+  item_id      BigInt
+  submitted_by BigInt
+  type         ConditionType
+  photo_bucket String             @default("condition-photos") @db.VarChar(100)
+  photo_path   String
+  latitude     Decimal            @db.Decimal(10, 7)
+  longitude    Decimal            @db.Decimal(10, 7)
+  address_text String?
+  note         String?
+  taken_at     DateTime           @db.Timestamptz(6)
+  status       VerificationStatus @default(pending)
+  reviewed_by  BigInt?
+  reviewed_at  DateTime?          @db.Timestamptz(6)
+  created_at   DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime           @default(now()) @db.Timestamptz(6)
+
+  booking Booking @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  item    Item    @relation(fields: [item_id], references: [id], onDelete: Cascade)
+
+  submitter Profile  @relation("ConditionSubmittedBy", fields: [submitted_by], references: [id], onDelete: Cascade)
+  reviewer  Profile? @relation("ConditionReviewedBy", fields: [reviewed_by], references: [id])
+
+  @@unique([booking_id, item_id, type])
+  @@map("condition_verifications")
 }
