@@ -9,6 +9,7 @@ import type { AuthenticatedUser } from '../common/interfaces/authenticated-reque
 import { CreateConditionVerificationDto } from './dto/create-condition-verification.dto';
 import { CreateIdentityVerificationDto } from './dto/create-identity-verification.dto';
 import { RejectVerificationDto } from './dto/reject-verification.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 function mapIdentityVerification(data: any) {
   return {
@@ -96,7 +97,38 @@ function mapConditionVerification(data: any) {
 
 @Injectable()
 export class VerificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private async notifyAdmins(params: {
+    title: string;
+    body: string;
+    data?: Record<string, any>;
+  }) {
+    const admins = await this.prisma.profile.findMany({
+      where: {
+        role: 'admin',
+        is_active: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+  
+    await Promise.all(
+      admins.map((admin) =>
+        this.notificationsService.createNotification({
+          userId: Number(admin.id),
+          type: 'system',
+          title: params.title,
+          body: params.body,
+          data: params.data,
+          sendPush: true,
+        }),
+      ),
+    );
+  }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   async submitIdentityVerification(
     dto: CreateIdentityVerificationDto,
@@ -159,12 +191,26 @@ export class VerificationsService {
       },
     });
 
-    return mapIdentityVerification(verification);
+    const mappedVerification = mapIdentityVerification(verification);
+
+    await this.notifyAdmins({
+      title: 'Verifikasi Identitas Baru',
+      body: `${user.profile.full_name} mengirim verifikasi identitas untuk booking ${mappedVerification.booking?.booking_code}.`,
+      data: {
+        verification_id: mappedVerification.id,
+        booking_id: mappedVerification.booking_id,
+        booking_code: mappedVerification.booking?.booking_code,
+        type: 'identity_verification',
+      },
+    });
+
+    return mappedVerification;
   }
 
   async submitConditionVerification(
     dto: CreateConditionVerificationDto,
     user: AuthenticatedUser,
+    
   ) {
     const booking = await this.prisma.booking.findUnique({
       where: {
@@ -246,7 +292,22 @@ export class VerificationsService {
       },
     });
 
-    return mapConditionVerification(verification);
+    const mappedVerification = mapConditionVerification(verification);
+
+    await this.notifyAdmins({
+      title: 'Verifikasi Kondisi Barang Baru',
+      body: `${user.profile.full_name} mengirim foto kondisi barang untuk booking ${mappedVerification.booking?.booking_code}.`,
+      data: {
+        verification_id: mappedVerification.id,
+        booking_id: mappedVerification.booking_id,
+        booking_code: mappedVerification.booking?.booking_code,
+        item_id: mappedVerification.item_id,
+        condition_type: mappedVerification.type,
+        type: 'condition_verification',
+      },
+    });
+
+    return mappedVerification;
   }
 
   async findIdentityVerificationsForAdmin() {
@@ -318,7 +379,23 @@ export class VerificationsService {
       return identity;
     });
 
-    return mapIdentityVerification(updated);
+    const mappedVerification = mapIdentityVerification(updated);
+
+    await this.notificationsService.createNotification({
+      userId: mappedVerification.user_id,
+      type: 'system',
+      title: 'Verifikasi Identitas Disetujui',
+      body: `Verifikasi identitas untuk booking ${mappedVerification.booking?.booking_code} telah disetujui. Silakan lanjutkan pembayaran.`,
+      data: {
+        verification_id: mappedVerification.id,
+        booking_id: mappedVerification.booking_id,
+        booking_code: mappedVerification.booking?.booking_code,
+        next_status: 'waiting_payment',
+      },
+      sendPush: true,
+    });
+
+    return mappedVerification;
   }
 
   async rejectIdentityVerification(
@@ -368,7 +445,23 @@ export class VerificationsService {
       return identity;
     });
 
-    return mapIdentityVerification(updated);
+    const mappedVerification = mapIdentityVerification(updated);
+
+    await this.notificationsService.createNotification({
+      userId: mappedVerification.user_id,
+      type: 'system',
+      title: 'Verifikasi Identitas Ditolak',
+      body: `Verifikasi identitas untuk booking ${mappedVerification.booking?.booking_code} ditolak.`,
+      data: {
+        verification_id: mappedVerification.id,
+        booking_id: mappedVerification.booking_id,
+        booking_code: mappedVerification.booking?.booking_code,
+        reason: dto.reason,
+      },
+      sendPush: true,
+    });
+
+    return mappedVerification;
   }
 
   async approveConditionVerification(id: number, admin: AuthenticatedUser) {
@@ -398,7 +491,24 @@ export class VerificationsService {
       },
     });
 
-    return mapConditionVerification(updated);
+    const mappedVerification = mapConditionVerification(updated);
+
+    await this.notificationsService.createNotification({
+      userId: mappedVerification.submitted_by,
+      type: 'system',
+      title: 'Verifikasi Kondisi Barang Disetujui',
+      body: `Verifikasi kondisi barang ${mappedVerification.item?.name} telah disetujui.`,
+      data: {
+        verification_id: mappedVerification.id,
+        booking_id: mappedVerification.booking_id,
+        booking_code: mappedVerification.booking?.booking_code,
+        item_id: mappedVerification.item_id,
+        condition_type: mappedVerification.type,
+      },
+      sendPush: true,
+    });
+
+    return mappedVerification;
   }
 
   async rejectConditionVerification(
@@ -433,6 +543,24 @@ export class VerificationsService {
       },
     });
 
-    return mapConditionVerification(updated);
+    const mappedVerification = mapConditionVerification(updated);
+
+    await this.notificationsService.createNotification({
+      userId: mappedVerification.submitted_by,
+      type: 'system',
+      title: 'Verifikasi Kondisi Barang Ditolak',
+      body: `Verifikasi kondisi barang ${mappedVerification.item?.name} ditolak.`,
+      data: {
+        verification_id: mappedVerification.id,
+        booking_id: mappedVerification.booking_id,
+        booking_code: mappedVerification.booking?.booking_code,
+        item_id: mappedVerification.item_id,
+        condition_type: mappedVerification.type,
+        reason: dto.reason,
+      },
+      sendPush: true,
+    });
+
+    return mappedVerification;
   }
 }
