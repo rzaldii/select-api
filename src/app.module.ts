@@ -6,8 +6,9 @@ import { UsersModule } from './users/users.module';
 import { ItemsModule } from './items/items.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { VerificationsModule } from './verifications/verifications.module';
-import { AppController } from './app.controller';
 import { PaymentsModule } from './payments/payments.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
 @Module({
@@ -22,6 +23,7 @@ import { AppService } from './app.service';
     BookingsModule,
     VerificationsModule,
     PaymentsModule,
+    NotificationsModule
   ],
   controllers: [AppController],
   providers: [AppService],
