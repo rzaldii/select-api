@@ -7,6 +7,7 @@ import {
   import { createHash } from 'crypto';
   import { ConfigService } from '@nestjs/config';
   import { PrismaService } from '../prisma/prisma.service';
+  import { NotificationsService } from '../notifications/notifications.service';
   import type { AuthenticatedUser } from '../common/interfaces/authenticated-request.interface';
   
   const SUCCESS_PAYMENT_STATUSES = ['settlement', 'capture'];
@@ -47,8 +48,39 @@ import {
     constructor(
       private readonly prisma: PrismaService,
       private readonly configService: ConfigService,
+      private readonly notificationsService: NotificationsService,
     ) {}
-  
+
+    private async notifyAdmins(params: {
+      type: 'payment_success' | 'payment_failed' | 'system';
+      title: string;
+      body: string;
+      data?: Record<string, any>;
+    }) {
+      const admins = await this.prisma.profile.findMany({
+        where: {
+          role: 'admin',
+          is_active: true,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      await Promise.all(
+        admins.map((admin) =>
+          this.notificationsService.createNotification({
+            userId: Number(admin.id),
+            type: params.type,
+            title: params.title,
+            body: params.body,
+            data: params.data,
+            sendPush: true,
+          }),
+        ),
+      );
+    }
+
     private getMidtransServerKey() {
       const serverKey = this.configService.get<string>('MIDTRANS_SERVER_KEY');
   
@@ -265,7 +297,23 @@ import {
         return savedPayment;
       });
   
-      return mapPayment(payment);
+      const mappedPayment = mapPayment(payment);
+
+      await this.notificationsService.createNotification({
+        userId: user.profile.id,
+        type: 'system',
+        title: 'Link Pembayaran Dibuat',
+        body: `Silakan selesaikan pembayaran untuk booking ${booking.booking_code}.`,
+        data: {
+          booking_id: Number(booking.id),
+          booking_code: booking.booking_code,
+          payment_id: mappedPayment.id,
+          redirect_url: mappedPayment.redirect_url,
+        },
+        sendPush: false,
+      });
+
+      return mappedPayment;
     }
   
     async findPaymentByBooking(bookingId: number, user: AuthenticatedUser) {
@@ -398,6 +446,52 @@ import {
         return updatedPayment;
       });
   
-      return mapPayment(result);
+      const mappedPayment = mapPayment(result);
+
+      if (isSuccess) {
+        await this.notificationsService.createNotification({
+          userId: Number(result.booking.customer_id),
+          type: 'payment_success',
+          title: 'Pembayaran Berhasil',
+          body: `Pembayaran untuk booking ${result.booking.booking_code} berhasil diterima.`,
+          data: {
+            booking_id: Number(result.booking.id),
+            booking_code: result.booking.booking_code,
+            payment_id: mappedPayment.id,
+            status: mappedPayment.status,
+          },
+          sendPush: true,
+        });
+
+        await this.notifyAdmins({
+          type: 'payment_success',
+          title: 'Pembayaran Customer Berhasil',
+          body: `Pembayaran booking ${result.booking.booking_code} telah berhasil.`,
+          data: {
+            booking_id: Number(result.booking.id),
+            booking_code: result.booking.booking_code,
+            payment_id: mappedPayment.id,
+            status: mappedPayment.status,
+          },
+        });
+      }
+
+      if (isExpired || isFailed) {
+        await this.notificationsService.createNotification({
+          userId: Number(result.booking.customer_id),
+          type: 'payment_failed',
+          title: 'Pembayaran Belum Berhasil',
+          body: `Pembayaran untuk booking ${result.booking.booking_code} belum berhasil. Silakan coba kembali.`,
+          data: {
+            booking_id: Number(result.booking.id),
+            booking_code: result.booking.booking_code,
+            payment_id: mappedPayment.id,
+            status: mappedPayment.status,
+          },
+          sendPush: true,
+        });
+      }
+
+      return mappedPayment;
     }
   }
