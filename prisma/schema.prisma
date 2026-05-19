@@ -38,6 +38,21 @@ enum BookingStatus {
   @@map("booking_status")
 }
 
+enum VerificationStatus {
+  pending
+  approved
+  rejected
+
+  @@map("verification_status")
+}
+
+enum ConditionType {
+  before_rent
+  after_rent
+
+  @@map("condition_type")
+}
+
 model Profile {
   id           BigInt   @id @default(autoincrement())
   auth_user_id String?  @unique @db.Uuid
@@ -50,6 +65,10 @@ model Profile {
   is_active    Boolean  @default(true)
   created_at   DateTime @default(now()) @db.Timestamptz(6)
   updated_at   DateTime @default(now()) @db.Timestamptz(6)
+  identity_verifications  IdentityVerification[]
+  condition_verifications ConditionVerification[] @relation("ConditionSubmittedBy")
+  reviewed_identities     IdentityVerification[]  @relation("IdentityReviewedBy")
+  reviewed_conditions     ConditionVerification[] @relation("ConditionReviewedBy")
 
   bookings Booking[] @relation("CustomerBookings")
 
@@ -93,6 +112,7 @@ model Item {
   category      Category      @relation(fields: [category_id], references: [id])
   images        ItemImage[]
   booking_items BookingItem[]
+  condition_verifications ConditionVerification[]
 
   @@map("items")
 }
@@ -136,6 +156,8 @@ model Booking {
 
   customer      Profile       @relation("CustomerBookings", fields: [customer_id], references: [id])
   booking_items BookingItem[]
+  identity_verification   IdentityVerification?
+  condition_verifications ConditionVerification[]
 
   @@map("bookings")
 }
@@ -156,4 +178,31 @@ model BookingItem {
 
   @@unique([booking_id, item_id])
   @@map("booking_items")
+}
+
+model IdentityVerification {
+  id                BigInt             @id @default(autoincrement())
+  booking_id        BigInt             @unique
+  user_id           BigInt
+  document_type     String             @default("ktp") @db.VarChar(30)
+  ktp_name          String?            @db.VarChar(120)
+  ktp_number_masked String?            @db.VarChar(40)
+  photo_bucket      String             @default("identity-documents") @db.VarChar(100)
+  photo_path        String
+  latitude          Decimal            @db.Decimal(10, 7)
+  longitude         Decimal            @db.Decimal(10, 7)
+  address_text      String?
+  taken_at          DateTime           @db.Timestamptz(6)
+  status            VerificationStatus @default(pending)
+  reviewed_by       BigInt?
+  reviewed_at       DateTime?          @db.Timestamptz(6)
+  rejection_reason  String?
+  created_at        DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime           @default(now()) @db.Timestamptz(6)
+
+  booking  Booking @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  user     Profile @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  reviewer Profile? @relation("IdentityReviewedBy", fields: [reviewed_by], references: [id])
+
+  @@map("identity_verifications")
 }
