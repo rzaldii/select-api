@@ -10,6 +10,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { FavoritesModule } from './favorites/favorites.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -27,7 +28,8 @@ import { AppService } from './app.service';
     PaymentsModule,
     NotificationsModule,
     ReviewsModule,
-    FavoritesModule
+    FavoritesModule,
+    DashboardModule
   ],
   controllers: [AppController],
   providers: [AppService],
