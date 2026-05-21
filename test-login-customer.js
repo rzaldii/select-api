@@ -16,7 +16,7 @@ async function login() {
     return;
   }
 
-  console.log('Login customer berhasil');
+  console.log('Login customer berhasil dilakukan');
   console.log('User ID:', data.user.id);
   console.log('\nAccess Token:\n');
   console.log(data.session.access_token);
