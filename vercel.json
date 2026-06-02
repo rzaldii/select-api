@@ -3,6 +3,7 @@
   "builds": [
     {
       "src": "package.json",
+      "src": "api/index.ts",
       "use": "@vercel/node",
       "config": {
         "maxLambdaSize": "50mb"
@@ -10,7 +11,9 @@
     }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "/src/main.ts" },
-    { "src": "/api/docs", "dest": "/src/main.ts" }
+    {
+      "src": "/(.*)",
+      "dest": "api/index.ts"
+    }
   ]
 }
