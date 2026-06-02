@@ -12,6 +12,7 @@ import { ReviewsModule } from './reviews/reviews.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { StorageModule } from './storage/storage.module';
+import { AuthModule } from './auth/auth.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -31,7 +32,8 @@ import { AppService } from './app.service';
     ReviewsModule,
     FavoritesModule,
     DashboardModule,
-    StorageModule
+    StorageModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
