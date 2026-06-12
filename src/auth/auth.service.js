@@ -108,7 +108,10 @@ let AuthService = class AuthService {
         if (error) {
             const message = error.message.toLowerCase();
             if (message.includes('email rate limit exceeded')) {
-                throw new common_1.HttpException('Batas pengiriman email verifikasi tercapai. Tunggu beberapa menit atau gunakan SMTP sendiri di Supabase.', common_1.HttpStatus.TOO_MANY_REQUESTS);
+                throw new common_1.HttpException('Batas pengiriman email verifikasi tercapai. Tunggu beberapa menit atau gunakan Custom SMTP di Supabase.', common_1.HttpStatus.TOO_MANY_REQUESTS);
+            }
+            if (message.includes('error sending confirmation email')) {
+                throw new common_1.BadRequestException('Gagal mengirim email konfirmasi. Periksa konfigurasi Custom SMTP di Supabase.');
             }
             if (message.includes('already') ||
                 message.includes('registered') ||

@@ -138,8 +138,14 @@ export class AuthService {
 
       if (message.includes('email rate limit exceeded')) {
         throw new HttpException(
-          'Batas pengiriman email verifikasi tercapai. Tunggu beberapa menit atau gunakan SMTP sendiri di Supabase.',
+          'Batas pengiriman email verifikasi tercapai. Tunggu beberapa menit atau gunakan Custom SMTP di Supabase.',
           HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
+      if (message.includes('error sending confirmation email')) {
+        throw new BadRequestException(
+          'Gagal mengirim email konfirmasi. Periksa konfigurasi Custom SMTP di Supabase.',
         );
       }
 
