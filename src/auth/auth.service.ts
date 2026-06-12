@@ -164,13 +164,17 @@ export class AuthService {
       throw new BadRequestException(error.message);
     }
 
-    if (!data.user || !data.user.email) {
-      throw new BadRequestException('Register gagal');
+    if (!data.user) {
+      throw new BadRequestException(
+        'Register gagal: Supabase tidak mengembalikan data user.',
+      );
     }
+
+    const registeredEmail = data.user.email ?? email;
 
     const profile = await this.syncProfile({
       authUserId: data.user.id,
-      email: data.user.email,
+      email: registeredEmail,
       fullName,
       phone,
     });
