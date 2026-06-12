@@ -48,6 +48,27 @@ let AuthService = class AuthService {
             },
         });
         if (profile) {
+            const shouldUpdateFullName = params.fullName && params.fullName.trim() && profile.full_name !== params.fullName.trim();
+            const shouldUpdatePhone = params.phone && params.phone.trim() && profile.phone !== params.phone.trim();
+            if (shouldUpdateFullName || shouldUpdatePhone) {
+                return this.prisma.profile.update({
+                    where: {
+                        id: profile.id,
+                    },
+                    data: {
+                        ...(shouldUpdateFullName
+                            ? {
+                                full_name: params.fullName.trim(),
+                            }
+                            : {}),
+                        ...(shouldUpdatePhone
+                            ? {
+                                phone: params.phone.trim(),
+                            }
+                            : {}),
+                    },
+                });
+            }
             return profile;
         }
         const existingEmailProfile = await this.prisma.profile.findUnique({
@@ -119,10 +140,12 @@ let AuthService = class AuthService {
         if (existingProfile?.auth_user_id) {
             throw new common_1.ConflictException('Email sudah terdaftar. Silakan login.');
         }
+        const emailRedirectTo = process.env.AUTH_EMAIL_REDIRECT_TO || 'select://auth/callback';
         const { data, error } = await supabase.auth.signUp({
             email,
             password: dto.password,
             options: {
+                emailRedirectTo,
                 data: {
                     full_name: fullName,
                     phone,
