@@ -105,6 +105,39 @@ export class AuthService {
     return profile;
   }
 
+  private async findAuthUserByEmail(email: string): Promise<User | null> {
+    const supabaseAdmin = this.supabaseService.getAdminClient();
+
+    const targetEmail = normalizeEmail(email);
+
+    for (let page = 1; page <= 10; page++) {
+      const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+        page,
+        perPage: 100,
+      });
+
+      if (error) {
+        throw new BadRequestException(error.message);
+      }
+
+      const users = data.users ?? [];
+
+      const foundUser = users.find((user) => {
+        return normalizeEmail(user.email ?? '') == targetEmail;
+      });
+
+      if (foundUser) {
+        return foundUser;
+      }
+
+      if (users.length < 100) {
+        break;
+      }
+    }
+
+    return null;
+  }
+
   async register(dto: RegisterDto) {
     const supabase = this.supabaseService.getClient();
 
@@ -164,16 +197,22 @@ export class AuthService {
       throw new BadRequestException(error.message);
     }
 
-    if (!data.user) {
+    let authUser = data.user;
+
+    if (!authUser) {
+      authUser = await this.findAuthUserByEmail(email);
+    }
+
+    if (!authUser) {
       throw new BadRequestException(
-        'Register gagal: Supabase tidak mengembalikan data user.',
+        'Register berhasil di Supabase Auth, tetapi backend gagal mengambil data user. Coba login setelah konfirmasi email.',
       );
     }
 
-    const registeredEmail = data.user.email ?? email;
+    const registeredEmail = authUser.email ?? email;
 
     const profile = await this.syncProfile({
-      authUserId: data.user.id,
+      authUserId: authUser.id,
       email: registeredEmail,
       fullName,
       phone,
@@ -185,7 +224,7 @@ export class AuthService {
         ? 'Register berhasil'
         : 'Register berhasil. Silakan cek email untuk konfirmasi akun.',
       data: mapAuthResponse({
-        user: data.user,
+        user: authUser,
         session: data.session,
         profile,
       }),

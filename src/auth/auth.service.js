@@ -82,6 +82,30 @@ let AuthService = class AuthService {
         });
         return profile;
     }
+    async findAuthUserByEmail(email) {
+        const supabaseAdmin = this.supabaseService.getAdminClient();
+        const targetEmail = normalizeEmail(email);
+        for (let page = 1; page <= 10; page++) {
+            const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+                page,
+                perPage: 100,
+            });
+            if (error) {
+                throw new common_1.BadRequestException(error.message);
+            }
+            const users = data.users ?? [];
+            const foundUser = users.find((user) => {
+                return normalizeEmail(user.email ?? '') == targetEmail;
+            });
+            if (foundUser) {
+                return foundUser;
+            }
+            if (users.length < 100) {
+                break;
+            }
+        }
+        return null;
+    }
     async register(dto) {
         const supabase = this.supabaseService.getClient();
         const email = normalizeEmail(dto.email);
@@ -123,12 +147,17 @@ let AuthService = class AuthService {
             }
             throw new common_1.BadRequestException(error.message);
         }
-        if (!data.user || !data.user.email) {
-            throw new common_1.BadRequestException('Register gagal');
+        let authUser = data.user;
+        if (!authUser) {
+            authUser = await this.findAuthUserByEmail(email);
         }
+        if (!authUser) {
+            throw new common_1.BadRequestException('Register berhasil di Supabase Auth, tetapi backend gagal mengambil data user. Coba login setelah konfirmasi email.');
+        }
+        const registeredEmail = authUser.email ?? email;
         const profile = await this.syncProfile({
-            authUserId: data.user.id,
-            email: data.user.email,
+            authUserId: authUser.id,
+            email: registeredEmail,
             fullName,
             phone,
         });
@@ -138,7 +167,7 @@ let AuthService = class AuthService {
                 ? 'Register berhasil'
                 : 'Register berhasil. Silakan cek email untuk konfirmasi akun.',
             data: mapAuthResponse({
-                user: data.user,
+                user: authUser,
                 session: data.session,
                 profile,
             }),
