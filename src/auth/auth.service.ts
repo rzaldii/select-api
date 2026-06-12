@@ -1,9 +1,13 @@
 import {
   BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import type { User } from '@supabase/supabase-js';
+
 import { PrismaService } from '../prisma/prisma.service';
 import { SupabaseService } from '../supabase/supabase.service';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-request.interface';
@@ -11,6 +15,10 @@ import { mapProfile } from '../common/mappers/profile.mapper';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
+
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
 
 function mapAuthResponse(params: {
   user: User;
@@ -48,6 +56,8 @@ export class AuthService {
     fullName?: string;
     phone?: string;
   }) {
+    const email = normalizeEmail(params.email);
+
     let profile = await this.prisma.profile.findFirst({
       where: {
         auth_user_id: params.authUserId,
@@ -60,7 +70,7 @@ export class AuthService {
 
     const existingEmailProfile = await this.prisma.profile.findUnique({
       where: {
-        email: params.email,
+        email,
       },
     });
 
@@ -78,15 +88,15 @@ export class AuthService {
     }
 
     if (existingEmailProfile?.auth_user_id) {
-      throw new BadRequestException('Email sudah terhubung dengan akun lain');
+      throw new ConflictException('Email sudah terhubung dengan akun lain');
     }
 
     profile = await this.prisma.profile.create({
       data: {
         auth_user_id: params.authUserId,
-        email: params.email,
-        full_name: params.fullName ?? params.email.split('@')[0],
-        phone: params.phone,
+        email,
+        full_name: params.fullName?.trim() || email.split('@')[0],
+        phone: params.phone?.trim() || null,
         role: 'customer',
         is_active: true,
       },
@@ -98,18 +108,53 @@ export class AuthService {
   async register(dto: RegisterDto) {
     const supabase = this.supabaseService.getClient();
 
+    const email = normalizeEmail(dto.email);
+    const fullName = dto.full_name.trim();
+    const phone = dto.phone?.trim() || undefined;
+
+    const existingProfile = await this.prisma.profile.findUnique({
+      where: {
+        email,
+      },
+    });
+
+    if (existingProfile?.auth_user_id) {
+      throw new ConflictException('Email sudah terdaftar. Silakan login.');
+    }
+
     const { data, error } = await supabase.auth.signUp({
-      email: dto.email,
+      email,
       password: dto.password,
       options: {
         data: {
-          full_name: dto.full_name,
-          phone: dto.phone,
+          full_name: fullName,
+          phone,
         },
       },
     });
 
     if (error) {
+      const message = error.message.toLowerCase();
+
+      if (message.includes('email rate limit exceeded')) {
+        throw new HttpException(
+          'Batas pengiriman email verifikasi tercapai. Tunggu beberapa menit atau gunakan SMTP sendiri di Supabase.',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
+      if (
+        message.includes('already') ||
+        message.includes('registered') ||
+        message.includes('exists')
+      ) {
+        throw new ConflictException('Email sudah terdaftar. Silakan login.');
+      }
+
+      if (message.includes('invalid')) {
+        throw new BadRequestException('Email tidak valid.');
+      }
+
       throw new BadRequestException(error.message);
     }
 
@@ -120,8 +165,8 @@ export class AuthService {
     const profile = await this.syncProfile({
       authUserId: data.user.id,
       email: data.user.email,
-      fullName: dto.full_name,
-      phone: dto.phone,
+      fullName,
+      phone,
     });
 
     return {
@@ -140,14 +185,37 @@ export class AuthService {
   async login(dto: LoginDto) {
     const supabase = this.supabaseService.getClient();
 
+    const email = normalizeEmail(dto.email);
+
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: dto.email,
+      email,
       password: dto.password,
     });
 
     if (error) {
-      throw new UnauthorizedException(error.message);
+  const message = error.message.toLowerCase();
+
+  if (message.includes('email rate limit exceeded')) {
+    throw new HttpException(
+      'Batas pengiriman email verifikasi tercapai. Tunggu beberapa menit atau gunakan SMTP sendiri di Supabase.',
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
+  }
+
+  if (
+      message.includes('already') ||
+      message.includes('registered') ||
+      message.includes('exists')
+    ) {
+      throw new ConflictException('Email sudah terdaftar. Silakan login.');
     }
+
+    if (message.includes('invalid')) {
+      throw new BadRequestException('Email tidak valid.');
+    }
+
+    throw new BadRequestException(error.message);
+  }
 
     if (!data.user || !data.user.email || !data.session) {
       throw new UnauthorizedException('Login gagal');

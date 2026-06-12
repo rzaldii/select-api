@@ -5,16 +5,35 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 @Injectable()
 export class SupabaseService {
   private readonly anonClient: SupabaseClient;
+  private readonly adminClient: SupabaseClient;
 
   constructor(private readonly configService: ConfigService) {
     const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
     const supabaseAnonKey = this.configService.get<string>('SUPABASE_ANON_KEY');
+    const supabaseServiceRoleKey = this.configService.get<string>(
+      'SUPABASE_SERVICE_ROLE_KEY',
+    );
 
     if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error('SUPABASE_URL atau SUPABASE_ANON_KEY belum tersedia di .env');
+      throw new Error(
+        'SUPABASE_URL atau SUPABASE_ANON_KEY belum tersedia di .env',
+      );
+    }
+
+    if (!supabaseServiceRoleKey) {
+      throw new Error(
+        'SUPABASE_SERVICE_ROLE_KEY belum tersedia di .env',
+      );
     }
 
     this.anonClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+
+    this.adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
@@ -24,5 +43,9 @@ export class SupabaseService {
 
   getClient() {
     return this.anonClient;
+  }
+
+  getAdminClient() {
+    return this.adminClient;
   }
 }
