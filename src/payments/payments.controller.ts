@@ -81,18 +81,18 @@ import {
     }
 
     @Post('payments/booking/:bookingId/simulate-paid')
-@ApiBearerAuth()
-@UseGuards(SupabaseAuthGuard)
-@ApiOperation({ summary: 'Simulasi pembayaran berhasil untuk testing Midtrans' })
-@ApiParam({ name: 'bookingId', example: 1 })
-async simulatePaid(
-  @CurrentUser() user: AuthenticatedUser,
-  @Param('bookingId', ParseIntPipe) bookingId: number,
-) {
-  return {
-    success: true,
-    message: 'Pembayaran berhasil disimulasikan',
-    data: await this.paymentsService.simulatePaymentSuccess(bookingId, user),
-  };
-}
+    @ApiBearerAuth()
+    @UseGuards(SupabaseAuthGuard)
+    @ApiOperation({ summary: 'Simulasi pembayaran berhasil untuk testing Midtrans' })
+    @ApiParam({ name: 'bookingId', example: 1 })
+    async simulatePaid(
+      @CurrentUser() user: AuthenticatedUser,
+      @Param('bookingId', ParseIntPipe) bookingId: number,
+    ) {
+      return {
+        success: true,
+        message: 'Pembayaran berhasil disimulasikan',
+        data: await this.paymentsService.simulatePaymentSuccess(bookingId, user),
+      };
+    }
   }
