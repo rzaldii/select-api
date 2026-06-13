@@ -43,6 +43,13 @@ let PaymentsController = class PaymentsController {
             data: await this.paymentsService.handleMidtransWebhook(payload),
         };
     }
+    async simulatePaid(user, bookingId) {
+        return {
+            success: true,
+            message: 'Pembayaran berhasil disimulasikan',
+            data: await this.paymentsService.simulatePaymentSuccess(bookingId, user),
+        };
+    }
 };
 exports.PaymentsController = PaymentsController;
 __decorate([
@@ -91,6 +98,18 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], PaymentsController.prototype, "handleMidtransWebhook", null);
+__decorate([
+    (0, common_1.Post)('payments/booking/:bookingId/simulate-paid'),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, common_1.UseGuards)(supabase_auth_guard_1.SupabaseAuthGuard),
+    (0, swagger_1.ApiOperation)({ summary: 'Simulasi pembayaran berhasil untuk testing Midtrans' }),
+    (0, swagger_1.ApiParam)({ name: 'bookingId', example: 1 }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('bookingId', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Number]),
+    __metadata("design:returntype", Promise)
+], PaymentsController.prototype, "simulatePaid", null);
 exports.PaymentsController = PaymentsController = __decorate([
     (0, swagger_1.ApiTags)('Payments'),
     (0, common_1.Controller)(),
