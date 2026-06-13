@@ -287,6 +287,110 @@ let PaymentsService = class PaymentsService {
         }
         return mapPayment(booking.payment);
     }
+    async simulatePaymentSuccess(bookingId, user) {
+        const booking = await this.prisma.booking.findUnique({
+            where: {
+                id: BigInt(bookingId),
+            },
+            include: {
+                customer: true,
+                payment: {
+                    include: {
+                        booking: true,
+                    },
+                },
+            },
+        });
+        if (!booking) {
+            throw new common_1.NotFoundException('Booking tidak ditemukan');
+        }
+        const isOwner = Number(booking.customer_id) === user.profile.id;
+        const isAdmin = user.profile.role === 'admin';
+        if (!isOwner && !isAdmin) {
+            throw new common_1.ForbiddenException('Tidak boleh mengakses pembayaran ini');
+        }
+        if (!booking.payment) {
+            throw new common_1.NotFoundException('Pembayaran belum dibuat');
+        }
+        if (!['waiting_payment', 'payment_pending', 'paid'].includes(booking.status)) {
+            throw new common_1.BadRequestException('Booking tidak berada pada status pembayaran');
+        }
+        const now = new Date();
+        const payload = {
+            simulation: true,
+            source: 'mobile_app',
+            transaction_status: 'settlement',
+            order_id: booking.payment.external_order_id,
+            payment_type: 'simulation',
+            transaction_id: `SIM-${booking.booking_code}-${Date.now()}`,
+            fraud_status: 'accept',
+            paid_at: now.toISOString(),
+        };
+        const result = await this.prisma.$transaction(async (tx) => {
+            await tx.booking.update({
+                where: {
+                    id: booking.id,
+                },
+                data: {
+                    status: 'paid',
+                },
+            });
+            const updatedPayment = await tx.payment.update({
+                where: {
+                    id: booking.payment.id,
+                },
+                data: {
+                    transaction_id: payload.transaction_id,
+                    payment_type: payload.payment_type,
+                    status: 'settlement',
+                    fraud_status: 'accept',
+                    raw_response: payload,
+                    paid_at: now,
+                    expired_at: null,
+                },
+                include: {
+                    booking: true,
+                },
+            });
+            await tx.paymentEvent.create({
+                data: {
+                    payment_id: booking.payment.id,
+                    event_type: 'simulation_settlement',
+                    status: 'settlement',
+                    payload,
+                },
+            });
+            return updatedPayment;
+        });
+        const mappedPayment = mapPayment(result);
+        await this.notificationsService.createNotification({
+            userId: Number(booking.customer_id),
+            type: 'payment_success',
+            title: 'Pembayaran Berhasil',
+            body: `Pembayaran untuk booking ${booking.booking_code} berhasil diterima.`,
+            data: {
+                booking_id: Number(booking.id),
+                booking_code: booking.booking_code,
+                payment_id: mappedPayment.id,
+                status: mappedPayment.status,
+                simulation: true,
+            },
+            sendPush: true,
+        });
+        await this.notifyAdmins({
+            type: 'payment_success',
+            title: 'Pembayaran Customer Berhasil',
+            body: `Pembayaran booking ${booking.booking_code} telah berhasil.`,
+            data: {
+                booking_id: Number(booking.id),
+                booking_code: booking.booking_code,
+                payment_id: mappedPayment.id,
+                status: mappedPayment.status,
+                simulation: true,
+            },
+        });
+        return mappedPayment;
+    }
     async handleMidtransWebhook(payload) {
         this.verifyMidtransSignature(payload);
         const externalOrderId = String(payload.order_id);
